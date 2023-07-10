@@ -32,7 +32,8 @@ for sdk_name in MMS.sdks:
       binary.sources += [
         'provider/source/provider_source.cpp',
         'provider/source/provider_source_console.cpp',
-        'vsp_bridge.cpp'
+        'vsp_bridge.cpp',
+        os.path.join(sdk.path, 'tier1', 'convar.cpp')
         ]
 
     # Source2 hack. TODO: check this more deterministically, "are we doing an x64 build?"

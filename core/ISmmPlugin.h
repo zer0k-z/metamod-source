@@ -43,7 +43,7 @@
 #if META_IS_SOURCE2
 #include <interfaces/interfaces.h>
 #else
-#include <tier1/interface.h>
+#include <tier0/interface.h>
 #endif
 #endif
 

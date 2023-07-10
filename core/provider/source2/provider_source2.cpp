@@ -125,7 +125,7 @@ void Source2Provider::Notify_DLLInit_Pre(CreateInterfaceFn engineFactory,
 
 	g_pCVar = icvar;
 
-	ConVar_Register(FCVAR_RELEASE);
+	// ConVar_Register(FCVAR_RELEASE);
 
 	if (gameclients)
 	{
@@ -441,7 +441,7 @@ void Source2Provider::Hook_ClientCommand(CPlayerSlot nSlot, const CCommand& _cmd
 	{
 		if (nullptr != m_pCallbacks)
 		{
-			m_pCallbacks->OnCommand_ClientMeta(nSlot, &cmd);
+			m_pCallbacks->OnCommand_Meta(&cmd);
 		}
 		
 		RETURN_META(MRES_SUPERCEDE);
