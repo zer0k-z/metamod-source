@@ -4,3 +4,6 @@
 [submodule "hl2sdk-manifests"]
 	path = hl2sdk-manifests
 	url = https://github.com/alliedmodders/hl2sdk-manifests
+[submodule "protobuf-3.21.8"]
+	path = samples/s2_sample_mm/protobuf-3.21.8
+	url = https://github.com/noahbkim/cs2s-protobuf
