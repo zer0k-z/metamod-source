@@ -8,27 +8,29 @@
 [CmdletBinding()]
 param(
     [string[]]$SDKs = @(
-        'csgo',
-        'hl2dm',
-        'nucleardawn',
-        'l4d2',
-        'dods',
-        'l4d',
-        'css',
-        'tf2',
-        'insurgency',
-        'sdk2013',
-        'dota',
-        'orangebox',
-        'blade',
-        'episode1',
-        'bms',
-        'darkm',
-        'swarm',
-        'bgt',
-        'eye',
-        'contagion',
+        'csgo'
+        'hl2dm'
+        'nucleardawn'
+        'l4d2'
+        'dods'
+        'l4d'
+        'css'
+        'tf2'
+        'insurgency'
+        'sdk2013'
+        'dota'
+        'orangebox'
+        'blade'
+        'episode1'
+        'bms'
+        'darkm'
+        'swarm'
+        'bgt'
+        'eye'
+        'contagion'
         'doi'
+        'pvkii'
+        'mcv'
         )
 )
 

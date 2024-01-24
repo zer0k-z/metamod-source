@@ -2,7 +2,7 @@
  * vim: set ts=4 sw=4 tw=99 noet :
  * ======================================================
  * Metamod:Source
- * Copyright (C) 2004-2015 AlliedModders LLC and authors.
+ * Copyright (C) 2004-2023 AlliedModders LLC and authors.
  * All rights reserved.
  * ======================================================
  *
@@ -29,6 +29,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <cstdint>
 #include "loader.h"
 #include "serverplugin.h"
 #include "gamedll.h"
@@ -48,6 +49,12 @@ mm_LogFatal(const char *message, ...)
 	time_t t;
 	va_list ap;
 	char header[256];
+
+	printf("MMS: Fatal error: ");
+	va_start(ap, message);
+	vprintf(message, ap);
+	va_end(ap);
+	printf("\n");
 
 	fp = fopen(mm_fatal_logfile, "at");
 	if (!fp && (fp = fopen("metamod-fatal.log", "at")) == NULL)
@@ -91,6 +98,10 @@ static const char *backend_names[] =
 	"2.contagion",
 	"2.bms",
 	"2.doi",
+	"2.mock",
+	"2.pvkii",
+	"2.mcv",
+	"2.cs2",
 };
 
 #if defined _WIN32
@@ -195,109 +206,64 @@ mm_GetProcAddress(const char *name)
 	return mm_GetLibAddress(mm_library, name);
 }
 
+typedef const char *(*GetGameInfoStringFn)(const char *pszKeyName, const char *pszDefaultValue, char *pszOut, uint64_t cbOut);
+
 void
 mm_GetGameName(char *buffer, size_t size)
 {
-	buffer[0] = '\0';
-	bool bHasDedicated = false;
-
-#if defined _WIN32
-	static char game[128];
-
-	LPWSTR pCmdLine = GetCommandLineW();
-	int argc;
-	LPWSTR *wargv = CommandLineToArgvW(pCmdLine, &argc);
-	for (int i = 0; i < argc; ++i)
+	if (!mm_GetCommandArgument("-game", buffer, size))
 	{
-		if (wcscmp(wargv[i], L"-game") == 0)
-		{
-			if (++i >= argc)
-				break;
-
-			wcstombs(buffer, wargv[i], size);
-			buffer[size-1] = '\0';
-		}
-		else if (wcscmp(wargv[i], L"-dedicated") == 0)
-		{
-			bHasDedicated = true;
-		}
-	}
-
-	LocalFree(wargv);
-
-#elif defined __APPLE__
-	int argc = *_NSGetArgc();
-	char **argv = *_NSGetArgv();
-	for (int i = 0; i < argc; ++i)
-	{
-		if (strcmp(argv[i], "-game") == 0)
-		{
-			if (++i >= argc)
-				break;
-
-			strncpy(buffer, argv[i], size);
-			buffer[size-1] = '\0';
-		}
-		else if (strcmp(argv[i], "-dedicated") == 0)
-		{
-			bHasDedicated = true;
-		}
-	}
-
+		char tier0_path[PLATFORM_MAX_PATH];
+#ifdef _WIN32
+		if (mm_ResolvePath("tier0.dll", tier0_path, sizeof(tier0_path), false))
 #elif defined __linux__
-	FILE *pFile = fopen("/proc/self/cmdline", "rb");
-	if (pFile)
-	{
-		char *arg = NULL;
-		size_t argsize = 0;
-		bool bNextIsGame = false;
-
-		while (getdelim(&arg, &argsize, 0, pFile) != -1)
-		{
-			if (bNextIsGame)
-			{
-				strncpy(buffer, arg, size);
-				buffer[size-1] = '\0';
-				bNextIsGame = false;
-			}
-
-			if (strcmp(arg, "-game") == 0)
-			{
-				bNextIsGame = true;
-			}
-			else if (strcmp(arg, "-dedicated") == 0)
-			{
-				bHasDedicated = true;
-			}
-		}
-
-		free(arg);
-		fclose(pFile);
-	}
+		if (mm_ResolvePath("libtier0.so", tier0_path, sizeof(tier0_path), false))
+#elif defined __APPLE__
+		if (mm_ResolvePath("libtier0.dylib", tier0_path, sizeof(tier0_path), false))
 #else
 #error unsupported platform
 #endif
-
-	if (buffer[0] == 0)
-	{
-		// HackHackHack - Different engines have different defaults if -game isn't specified
-		// we only use this for game detection, and not even in all cases. Old behavior was to 
-		// give back ".", which was only really accurate for Dark Messiah. We'll add a special 
-		// case for Source2 / Dota as well, since it only supports gameinfo loading, which relies
-		// on accuracy here more than VSP loading.
-		if (bHasDedicated)
 		{
-			strncpy(buffer, "dota", size);
+			char err[1024];
+			void* pTier0 = mm_LoadLibrary(tier0_path, err, sizeof(err));
+			if (pTier0)
+			{
+#ifdef _WIN32
+				GetGameInfoStringFn func = (GetGameInfoStringFn)mm_GetLibAddress(pTier0, "?GetGameInfoString@@YAPEBDPEBD0PEAD_K@Z");
+#else
+				GetGameInfoStringFn func = (GetGameInfoStringFn)mm_GetLibAddress(pTier0, "_Z17GetGameInfoStringPKcS0_Pcm");
+#endif
+				if (func != nullptr)
+				{
+					static char szTmp[260];
+					strncpy(buffer, func("FileSystem/SearchPaths/Mod", "", szTmp, sizeof(szTmp)), size);
+				}
+				else
+				{
+					mm_LogFatal("Failed to resolve GetGameInfoString in fallback gamedir lookup.");
+				}
+
+				mm_UnloadLibrary(pTier0);
+			}
+			else
+			{
+				mm_LogFatal("Failed to load tier0 from \"%s\" in fallback gamedir lookup: %s", tier0_path, err);
+			}
 		}
 		else
 		{
-			strncpy(buffer, ".", size);
+			mm_LogFatal("Failed to resolve tier0 path in fallback gamedir lookup.");
 		}
+	}
+
+	if (buffer[0] == 0)
+	{
+		strncpy(buffer, ".", size);
 	}
 }
 
 MetamodBackend
-mm_DetermineBackend(QueryValveInterface engineFactory, QueryValveInterface serverFactory, const char *game_name)
+mm_DetermineBackendS1(QueryValveInterface engineFactory, QueryValveInterface serverFactory, const char *game_name)
 {
 	if (engineFactory("VEngineServer023", NULL) != NULL)
 	{
@@ -327,6 +293,11 @@ mm_DetermineBackend(QueryValveInterface engineFactory, QueryValveInterface serve
 		if (mm_FindPattern((void *)engineFactory, " Blade Symphony ", sizeof(" Blade Symphony ") - 1))
 		{
 			return MMBackend_Blade;
+		}
+
+		if (mm_FindPattern((void *)engineFactory, "Military Conflict: Vietnam", sizeof("Military Conflict: Vietnam") - 1))
+		{
+			return MMBackend_MCV;
 		}
 		
 		return MMBackend_CSGO;
@@ -424,6 +395,14 @@ mm_DetermineBackend(QueryValveInterface engineFactory, QueryValveInterface serve
 					else if (strcmp(game_name, "hl2mp") == 0)
 					{
 						return MMBackend_HL2DM;
+					}
+					else if (strcmp(game_name, "pvkii") == 0)
+					{
+						return MMBackend_PVKII;
+					}
+					else if (strcmp(game_name, ".") == 0 && engineFactory("MOCK_ENGINE", NULL))
+					{
+						return MMBackend_Mock;
 					}
 					else
 					{

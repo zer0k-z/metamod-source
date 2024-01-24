@@ -25,11 +25,23 @@
  * Version: $Id$
  */
 
-#include <ctype.h>
+#include <cctype>
 #include <string.h>
 #include <stdio.h>
+#include <string>
+#include <vector>
+#include <algorithm>
 #include "metamod_util.h"
 #include "metamod_oslink.h"
+
+#ifdef _WIN32
+# include <io.h>
+#else
+# include <fcntl.h>
+# include <unistd.h>
+#endif
+
+using namespace std::string_literals;
 
 /**
  * @brief Utility functions
@@ -57,46 +69,33 @@ const char *UTIL_GetExtension(const char *file)
 	return NULL;
 }
 
+// https://stackoverflow.com/a/217605
+// trim from start (in place)
+static inline void ltrim(std::string& s) {
+    s.erase(s.begin(), std::find_if(s.begin(), s.end(), [](unsigned char ch) {
+        return !std::isspace(ch);
+        }));
+}
+
+// trim from end (in place)
+static inline void rtrim(std::string& s) {
+    s.erase(std::find_if(s.rbegin(), s.rend(), [](unsigned char ch) {
+        return !std::isspace(ch);
+        }).base(), s.end());
+}
+
 void UTIL_TrimLeft(char *buffer)
 {
-	/* Let's think of this as our iterator */
-	char *i = buffer;
-
-	/* Make sure the buffer isn't null */
-	if (i && *i)
-	{
-		/* Add up number of whitespace characters */
-		while(isspace((unsigned char) *i))
-		{
-			i++;
-		}
-
-		/* If whitespace chars in buffer then adjust string so first non-whitespace char is at start of buffer */
-		if (i != buffer)
-		{
-			memmove(buffer, i, (strlen(i) + 1) * sizeof(char));
-		}
-	}
+    std::string s(buffer);
+    ltrim(s);
+    strcpy(buffer, s.c_str());
 }
 
 void UTIL_TrimRight(char *buffer)
 {
-	/* Make sure buffer isn't null */
-	if (buffer)
-	{
-		size_t len = strlen(buffer);
-
-		/* Loop through buffer backwards while replacing whitespace chars with null chars */
-		for (size_t i = len - 1; i < len; i--)
-		{
-			if (isspace((unsigned char) buffer[i]))
-			{
-				buffer[i] = '\0';
-			} else {
-				break;
-			}
-		}
-	}
+    std::string s(buffer);
+    rtrim(s);
+    strcpy(buffer, s.c_str());
 }
 
 bool UTIL_PathCmp(const char *path1, const char *path2)
@@ -239,10 +238,10 @@ inline bool pathchar_cmp(char a, char b)
  * @param relFrom		Source file or folder to use as a target.
  * @return				True on success, false on failure.
  */
-bool UTIL_Relatize(char buffer[],
-				   size_t maxlength,
-				   const char *relTo,
-				   const char *relFrom)
+bool UTIL_BadRelatize(char buffer[],
+				      size_t maxlength,
+				      const char *relTo,
+				      const char *relFrom)
 {
 	/* We don't allow relative paths in here, force
 	 * the user to resolve these himself!
@@ -356,4 +355,102 @@ bool UTIL_VerifySignature(const void *addr, const char *sig, size_t len)
 	}
 
 	return true;
+}
+
+static bool ComparePathComponent(const std::string& a, const std::string& b) {
+#ifdef _WIN32
+	if (a.size() != b.size())
+		return false;
+	for (size_t i = 0; i < a.size(); i++) {
+		if (!pathchar_cmp(a[i], b[i]))
+			return false;
+	}
+	return true;
+#else
+	return a == b;
+#endif
+}
+
+static std::vector<std::string> SplitPath(const char* path) {
+	std::vector<std::string> parts;
+
+	const char* iter = path;
+
+#ifdef _WIN32
+	if (isalpha(path[0]) && path[1] == ':' && pathchar_sep(path[2])) {
+		// Append drive only (eg C:)
+		parts.emplace_back(path, 2);
+		iter += 2;
+		while (pathchar_sep(*iter))
+			iter++;
+	}
+#endif
+
+	if (pathchar_sep(*iter)) {
+		parts.emplace_back(PATH_SEP_STR);
+		while (pathchar_sep(*iter))
+			iter++;
+	}
+
+	while (*iter) {
+		const char* start = iter;
+		while (*iter && !pathchar_sep(*iter))
+			iter++;
+		if (iter != start)
+			parts.emplace_back(start, iter - start);
+		while (pathchar_sep(*iter))
+			iter++;
+	}
+	return parts;
+}
+
+bool UTIL_Relatize2(char* buffer, size_t maxlen, const char* path1, const char* path2)
+{
+	auto parts1 = SplitPath(path1);
+	auto parts2 = SplitPath(path2);
+
+	// If this fails, paths were not relative or have different drives.
+	if (parts1[0] != parts2[0])
+		return false;
+
+	// Skip past identical paths.
+	size_t cursor = 1;
+	while (true) {
+		if (cursor >= parts1.size() || cursor >= parts2.size())
+			break;
+		if (!ComparePathComponent(parts1[cursor], parts2[cursor]))
+			break;
+		cursor++;
+	}
+
+	std::string new_path;
+	for (size_t i = cursor; i < parts1.size(); i++)
+		new_path += ".."s + PATH_SEP_STR;
+	for (size_t i = cursor; i < parts2.size(); i++) {
+		new_path += parts2[i];
+		if (i != parts2.size() - 1)
+			new_path += PATH_SEP_STR;
+	}
+	if (pathchar_sep(path2[strlen(path2) - 1]))
+		new_path += PATH_SEP_STR;
+
+	snprintf(buffer, maxlen, "%s", new_path.c_str());
+	return true;
+}
+
+static inline bool PathExists(const char* path) {
+#ifdef _WIN32
+	return _access(path, 0) == 0 || errno != ENOENT;
+#else
+	return access(path, F_OK) == 0 || errno != ENOENT;
+#endif
+}
+
+bool UTIL_Relatize(char buffer[], size_t maxlength, const char *relTo, const char *relFrom)
+{
+	if (UTIL_BadRelatize(buffer, maxlength, relTo, relFrom)) {
+		if (PathExists(buffer))
+			return true;
+	}
+	return UTIL_Relatize2(buffer, maxlength, relTo, relFrom);
 }

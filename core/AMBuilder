@@ -1,35 +1,45 @@
 # vim: set sts=2 ts=8 sw=2 tw=99 et ft=python: 
 import os
 
-for sdk_name in MMS.sdks:
-  for cxx in MMS.all_targets:
-    sdk = MMS.sdks[sdk_name]
+for sdk_target in MMS.sdk_targets:
+  sdk = sdk_target.sdk
+  cxx = sdk_target.cxx
+  
+  name = 'metamod.' + sdk['extension']
+  binary = MMS.HL2Library(builder, cxx, name, sdk)
 
-    if not cxx.target.arch in sdk.platformSpec[cxx.target.platform]:
-      continue
+  binary.sources += [
+    'metamod.cpp',
+    'metamod_console.cpp',
+    'metamod_oslink.cpp',
+    'metamod_plugins.cpp',
+    'metamod_util.cpp',
+    'provider/provider_base.cpp',
+    'sourcehook/sourcehook.cpp',
+    'sourcehook/sourcehook_impl_chookidman.cpp',
+    'sourcehook/sourcehook_impl_chookmaninfo.cpp',
+    'sourcehook/sourcehook_impl_cproto.cpp',
+    'sourcehook/sourcehook_impl_cvfnptr.cpp',
+    'gamedll_bridge.cpp'
+  ]
 
-    name = 'metamod.' + sdk.ext
-    binary = MMS.HL2Library(builder, cxx, name, sdk)
-
+  if sdk.get('source2', False):
     binary.sources += [
-      'metamod.cpp',
-      'metamod_console.cpp',
-      'metamod_oslink.cpp',
-      'metamod_plugins.cpp',
-      'metamod_util.cpp',
-      'provider/console.cpp',
-      'provider/provider_ep2.cpp',
-      'sourcehook/sourcehook.cpp',
-      'sourcehook/sourcehook_impl_chookidman.cpp',
-      'sourcehook/sourcehook_impl_chookmaninfo.cpp',
-      'sourcehook/sourcehook_impl_cproto.cpp',
-      'sourcehook/sourcehook_impl_cvfnptr.cpp',
-      'gamedll_bridge.cpp',
-      'vsp_bridge.cpp'
+      'provider/source2/provider_source2.cpp',
     ]
+  else:
+    binary.sources += [
+      'provider/source/provider_source.cpp',
+      'provider/source/provider_source_console.cpp',
+      'vsp_bridge.cpp'
+      ]
+  
+  if sdk['name'] == 'cs2':
+    binary.custom = [builder.tools.Protoc(protoc = sdk_target.protoc, sources = [
+      os.path.join(sdk['path'], 'common', 'network_connection.proto'),
+    ])]
 
-    # Source2 hack. TODO: check this more deterministically, "are we doing an x64 build?"
-    if binary.compiler.target.arch == 'x86':
-      binary.sources += ['sourcehook/sourcehook_hookmangen.cpp']
-    nodes = builder.Add(binary)
-    MMS.binaries += [nodes]
+  if cxx.target.arch == 'x86':
+    binary.sources += ['sourcehook/sourcehook_hookmangen.cpp']
+  nodes = builder.Add(binary)
+  MMS.binaries += [nodes]

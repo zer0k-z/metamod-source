@@ -13,28 +13,19 @@ jobs:
         include:
           - os: windows-latest
             os_short: windows
-            compiler_cc: msvc-vs2019
-          - os: windows-2016
+            compiler_cc: msvc-vs2022
+          - os: windows-2019
             os_short: windows
-            compiler_cc: msvc-vs2017
+            compiler_cc: msvc-vs2019
           - os: ubuntu-latest
             os_short: linux
             compiler_cc: clang
             compiler_cxx: clang++
-          - os: ubuntu-18.04
+          - os: ubuntu-20.04
             os_short: linux
-            compiler_cc: clang-3.9
-            compiler_cxx: clang++-3.9
-            compiler_install: clang-3.9
-          - os: ubuntu-18.04
-            os_short: linux
-            compiler_cc: gcc-6
-            compiler_cxx: g++-6
-            compiler_install: 'gcc-6 g++6 g++-6-multilib'
-          - os: macos-latest
-            os_short: mac
-            compiler_cc: clang
-            compiler_cxx: clang++
+            compiler_cc: clang-6.0
+            compiler_cxx: clang++-6.0
+            compiler_install: clang-6.0
       fail-fast: false
     runs-on: ${{ matrix.os }}
     name: ${{ matrix.os_short }}-${{ matrix.compiler_cc }}
@@ -43,17 +34,16 @@ jobs:
       DEPENDENCIES_FOLDER: dependencies
       DEPENDENCIES_ROOT: ${{ github.workspace }}/dependencies
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: recursive
           path: metamod-source
       
       - name: Select HL2SDKs
-        if: startsWith(runner.os, 'Windows')
-        run: echo 'SDKS=["episode1","tf2","l4d2","csgo","dota","insurgency"]' >> $GITHUB_ENV
+        run: echo 'SDKS=["episode1","tf2","l4d2","cs2","insurgency"]' >> $GITHUB_ENV
 
       - name: Cache dependencies
-        uses: actions/cache@v2
+        uses: actions/cache@v3
         env:
           cache-name: hl2sdk
         with:
@@ -62,10 +52,10 @@ jobs:
           restore-keys: ${{ runner.os }}-build-${{ env.cache-name }}-
 
       # Setup Python for AMBuild
-      - uses: actions/setup-python@v2
-        name: Setup Python 3.8
+      - uses: actions/setup-python@v4
+        name: Setup Python 3.12
         with:
-          python-version: 3.8
+          python-version: 3.12
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip setuptools wheel
